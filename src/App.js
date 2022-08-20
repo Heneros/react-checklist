@@ -35,25 +35,62 @@ const ADD_TODO = gql`
   }
 `;
 
+const DELETE_TODO = gql`
+mutation deleteTodo($id: uuid! ) {
+  delete_todos(where: {id: {_eq: $id}}) {
+    returning {
+      done
+      id
+      text
+    }
+  }
+}
+`;
+
 
 
 function App() {
   const [todoText, setTodoText] = React.useState('');
   const { data, loading, error } = useQuery(GET_TODOS);
   const [toggleTodo] = useMutation(TOGGLE_TODO);
-  const [addTodo] = useMutation(ADD_TODO)
+  const [addTodo] = useMutation(ADD_TODO, {
+    onCompleted: () => setTodoText("") ///After completed query. Clear input
+  })
+
+  const [deleteTodo] = useMutation(DELETE_TODO);
 
   async function handleToggleTodo({ id, done }) {
     const data = await toggleTodo({ variables: { id, done: !done } })
-    console.log('toggle todo' , data);
+    console.log('toggle todo', data);
   }
 
   async function handleAddTodo(event) {
     event.preventDefault();
     if (!todoText.trim()) return; ///If not empty
-    const data = await addTodo({ variables: { text: todoText } });
+    const data = await addTodo({
+      variables: { text: todoText }, //field 'text' it's field inside graphql.
+      refetchQueries: [
+        { query: GET_TODOS } ////Fetch query. Send query to db and get to page without reload.
+      ]
+    });
     console.log('add todo', data);
-    setTodoText('');/// clear text after add todo
+    // setTodoText(''); /// clear text after add todo
+  }
+
+
+  async function handleDeleteTodo({ id }) {
+    const isConfirmed = window.confirm("Do you want to delete this?")
+    if (isConfirmed) {
+      const data = await deleteTodo({
+        variables: { id },  //Referring to current id, what I want to delete.
+        update: cache => {
+          const prevData = cache.readQuery({ query: GET_TODOS }) // Get all cache data before mutation delete
+          const newTodos = prevData.todos.filter(todo => todo.id !== id); // every todo which id not equal what I deleted.
+          cache.writeQuery({ query: GET_TODOS, data: { todos: newTodos } }); //write query, after delete from cache
+        }
+      })
+      console.log('deleted todo', data);
+    }
   }
 
   if (loading) return <div>Loading... </div>
@@ -81,7 +118,9 @@ function App() {
           <span className={`pointer list pa1 f3 ${todo.done && "strike"}`}>
             {todo.text}
           </span>
-          <button className='bg-transparent bn f4'>
+          <button
+            onClick={() => handleDeleteTodo(todo)}
+            className='bg-transparent bn f4'>
             <span className='red'>&times;</span>
           </button>
         </p>
